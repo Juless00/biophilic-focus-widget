@@ -35,8 +35,13 @@
     .leaf-art { position:absolute; right:-10px; bottom:-10px; width:min(38%,260px); height:auto; opacity:.75; z-index:0; pointer-events:none; }
     .content { position:relative; z-index:1; display:grid; grid-template-columns: 1.2fr .9fr; gap:18px; padding:24px; min-height:360px; }
     .main, .side { min-width:0; display:flex; flex-direction:column; gap:14px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
     .eyebrow { display:inline-flex; align-items:center; gap:8px; font-family: ui-sans-serif,system-ui,-apple-system,sans-serif; font-size:11px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
     .dot { width:7px;height:7px;border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); }
+    .top-controls { display:flex; gap:8px; align-items:center; }
+    .icon-btn { appearance:none; border:1px solid var(--card-border); background:var(--input-bg); color:var(--muted); width:30px; height:30px; border-radius:999px; cursor:pointer; display:grid; place-items:center; font-size:14px; line-height:1; padding:0; }
+    .icon-btn:hover { color:var(--text); border-color: rgba(95,122,90,.35); background:var(--accent-soft); }
+    .icon-btn[aria-pressed="true"] { color:var(--accent); border-color: rgba(95,122,90,.35); background:var(--accent-soft); }
     .greeting { font-size: clamp(28px,4.5vw,40px); line-height:1.05; font-weight:500; letter-spacing:-.03em; margin-top:8px; text-wrap:balance; }
     .greeting .name { color: var(--leaf-deep); }
     .date { margin-top:8px; font-family: ui-sans-serif,system-ui,-apple-system,sans-serif; font-size:12px; color:var(--muted); }
@@ -100,7 +105,13 @@
     <div class="content">
       <section class="main">
         <div>
-          <div class="eyebrow"><span class="dot"></span><span>Living Focus</span></div>
+          <div class="topbar">
+            <div class="eyebrow"><span class="dot"></span><span>Living Focus</span></div>
+            <div class="top-controls">
+              <button class="icon-btn" id="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">◐</button>
+              <button class="icon-btn" id="sound-toggle" type="button" title="Toggle pomodoro sound" aria-label="Toggle pomodoro sound" aria-pressed="false">🔈</button>
+            </div>
+          </div>
           <h1 class="greeting" id="greeting">Good morning</h1>
           <p class="date" id="date">—</p>
         </div>
@@ -170,6 +181,7 @@
       const habitsEl=$('habits'), resetHabitsBtn=$('reset-habits-btn');
       const pctEl=$('progress-pct'), barEl=$('progress-bar'), noteEl=$('progress-note');
       const pomoModeEl=$('pomo-mode'), pomoTimeEl=$('pomo-time'), pomoBarEl=$('pomo-bar'), pomoToggle=$('pomo-toggle'), pomoReset=$('pomo-reset'), pomoSwitch=$('pomo-switch'), pomoNote=$('pomo-note');
+      const themeToggle=$('theme-toggle'), soundToggle=$('sound-toggle');
 
       function safeStoreGet() {
         try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch { return {}; }
@@ -187,19 +199,32 @@
       }
 
       // Theme
+      function currentThemePref() { return ['light','dark','auto'].includes(state.themePref) ? state.themePref : (['light','dark','auto'].includes(theme) ? theme : 'auto'); }
       function applyTheme() {
-        let chosen = theme;
+        let pref = currentThemePref();
+        let chosen = pref;
         if (!['light','dark'].includes(chosen)) chosen = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', chosen);
+        themeToggle.textContent = pref === 'dark' ? '☾' : pref === 'light' ? '☀' : '◐';
+        themeToggle.title = 'Theme: ' + pref + ' (click to change)';
+        themeToggle.setAttribute('aria-label', 'Theme: ' + pref);
       }
       applyTheme();
-      if (theme === 'auto' && window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+      if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (currentThemePref() === 'auto') applyTheme(); });
+      themeToggle.addEventListener('click', () => {
+        const order = ['auto','light','dark'];
+        const cur = currentThemePref();
+        state.themePref = order[(order.indexOf(cur) + 1) % order.length];
+        save(); applyTheme();
+      });
 
       // State
       const state = Object.assign({
         focus: '',
         habits: defaultHabits.map(t => ({ text: t, done: false })),
         habitsDate: '',
+        themePref: '',
+        soundEnabled: false,
         pomodoro: { mode: 'focus', remaining: 25*60, running: false, endAt: null }
       }, safeStoreGet());
       if (!Array.isArray(state.habits) || state.habits.length !== 3) state.habits = defaultHabits.map(t => ({ text: t, done: false }));
@@ -298,6 +323,43 @@
       }
       resetHabitsBtn.addEventListener('click', () => { state.habits = state.habits.map(h => ({...h, done:false})); save(); renderHabits(); });
 
+      // Sound
+      let audioCtx = null;
+      function ensureAudio() {
+        if (!audioCtx) { const Ctx = window.AudioContext || window.webkitAudioContext; if (Ctx) audioCtx = new Ctx(); }
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+        return audioCtx;
+      }
+      function playChime() {
+        if (!state.soundEnabled) return;
+        const ctx = ensureAudio();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        [523.25, 659.25, 783.99].forEach((freq, i) => {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sine';
+          o.frequency.value = freq;
+          g.gain.setValueAtTime(0.0001, now + i*0.18);
+          g.gain.exponentialRampToValueAtTime(0.08, now + i*0.18 + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + i*0.18 + 0.7);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(now + i*0.18); o.stop(now + i*0.18 + 0.75);
+        });
+      }
+      function renderSound() {
+        soundToggle.setAttribute('aria-pressed', state.soundEnabled ? 'true' : 'false');
+        soundToggle.textContent = state.soundEnabled ? '🔔' : '🔈';
+        soundToggle.title = state.soundEnabled ? 'Pomodoro sound: on' : 'Pomodoro sound: off (click to enable)';
+      }
+      soundToggle.addEventListener('click', () => {
+        state.soundEnabled = !state.soundEnabled;
+        if (state.soundEnabled) ensureAudio();
+        save(); renderSound();
+      });
+      renderSound();
+      document.addEventListener('pointerdown', () => { if (state.soundEnabled) ensureAudio(); }, { once: false });
+
       // Pomodoro
       const DURATIONS = { focus: 25*60, break: 5*60 };
       function pomoRemainingNow() {
@@ -315,6 +377,7 @@
             p.mode = p.mode === 'focus' ? 'break' : 'focus';
             p.remaining = DURATIONS[p.mode];
             save();
+            playChime();
           }
         }
       }

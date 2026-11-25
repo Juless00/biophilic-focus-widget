@@ -7,8 +7,10 @@ A self-contained, embeddable HTML widget with a biophilic (nature-inspired) aest
 - **Editable intention** — click the intention (or “Edit”) to set your own; saved in browser `localStorage`
 - **3 daily habits** — check off habits; click a habit label to rename it; checks auto-reset each day (per timezone/date)
 - **Pomodoro timer** — 25 min focus / 5 min break, Start/Pause/Reset, mode switch; state persisted in `localStorage`
+- **Theme toggle** — cycles `auto/light/dark` (saved in `localStorage`)
+- **Pomodoro sound** — optional chime on timer completion (click the bell icon to enable; browser requires a user gesture)
 - **Daylight flow** — subtle progress bar showing how far through the day you are
-- **Biophilic design** — sage/earth palette, organic leaf SVG, soft texture, auto light/dark
+- **Biophilic design** — sage/earth palette, organic leaf SVG, soft texture
 
 ## Embed in Notion
 1. Host on a public HTTPS URL (GitHub Pages works).
