@@ -429,11 +429,10 @@
         tzEl.textContent = tzError ? 'Local time (invalid tz)' : (tz ? tz.replace(/_/g,' ') : Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local time');
       }
 
-      // Waterfall
+      // Waterfall (misty, right-side column)
       const wfCanvas = $('waterfall');
       const wfCtx = wfCanvas ? wfCanvas.getContext('2d') : null;
-      let wfDrops = [];
-      let wfAnim = null;
+      let wfDrops = [], wfMist = [], wfAnim = null;
       function wfResize() {
         if (!wfCanvas) return;
         const r = wfCanvas.parentElement.getBoundingClientRect();
@@ -442,15 +441,28 @@
         wfCanvas.height = Math.max(1, Math.floor(r.height * dpr));
         wfCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
+      function wfColumnX(w) { const colW = w * 0.28; const left = w * 0.68; return left + Math.random() * colW; }
       function wfMakeDrop(w, h, randomY) {
         return {
-          x: Math.random() * w,
-          y: randomY ? Math.random() * h : -20 - Math.random() * h * 0.3,
-          len: 18 + Math.random() * 38,
-          speed: 0.8 + Math.random() * 1.8,
-          drift: (Math.random() - 0.5) * 0.25,
-          alpha: 0.08 + Math.random() * 0.18,
-          width: 0.7 + Math.random() * 1.3
+          x: wfColumnX(w),
+          y: randomY ? Math.random() * h : -30 - Math.random() * h * 0.4,
+          len: 24 + Math.random() * 55,
+          speed: 0.55 + Math.random() * 1.35,
+          drift: (Math.random() - 0.5) * 0.18,
+          alpha: 0.05 + Math.random() * 0.11,
+          width: 0.6 + Math.random() * 1.1
+        };
+      }
+      function wfMakeMist(w, h, randomY) {
+        return {
+          x: w * 0.62 + Math.random() * w * 0.36,
+          y: randomY ? h * 0.55 + Math.random() * h * 0.45 : h + 10 + Math.random() * 30,
+          r: 8 + Math.random() * 22,
+          vy: -(0.08 + Math.random() * 0.22),
+          vx: (Math.random() - 0.5) * 0.18,
+          alpha: 0.015 + Math.random() * 0.035,
+          life: 0,
+          maxLife: 260 + Math.random() * 220
         };
       }
       function wfInit() {
@@ -458,8 +470,10 @@
         wfResize();
         const w = wfCanvas.parentElement.clientWidth;
         const h = wfCanvas.parentElement.clientHeight;
-        const count = Math.max(28, Math.floor(w / 14));
+        const count = Math.max(22, Math.floor(w / 18));
         wfDrops = Array.from({ length: count }, () => wfMakeDrop(w, h, true));
+        const mistCount = Math.max(14, Math.floor(w / 28));
+        wfMist = Array.from({ length: mistCount }, () => wfMakeMist(w, h, true));
       }
       function wfStep() {
         if (!wfCanvas || !wfCtx) return;
@@ -470,24 +484,46 @@
         const cs = getComputedStyle(document.documentElement);
         const color = (cs.getPropertyValue('--accent') || '#7f9b76').trim();
         const rgb = color.startsWith('#') ? hexToRgb(color) : parseRgb(color) || {r:127,g:155,b:118};
+        // soft column glow
+        const colX = w * 0.82;
+        const glow = wfCtx.createLinearGradient(colX - w*0.22, 0, colX + w*0.08, 0);
+        glow.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+        glow.addColorStop(0.5, `rgba(${rgb.r},${rgb.g},${rgb.b},0.035)`);
+        glow.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+        wfCtx.fillStyle = glow;
+        wfCtx.fillRect(w*0.55, 0, w*0.45, h);
+
         wfCtx.lineCap = 'round';
         wfDrops.forEach((d, i) => {
           if (!reduce) {
             d.y += d.speed;
-            d.x += d.drift + Math.sin((d.y + i * 17) * 0.01) * 0.15;
+            d.x += d.drift + Math.sin((d.y + i * 17) * 0.008) * 0.12;
           }
-          if (d.y - d.len > h + 20) wfDrops[i] = wfMakeDrop(w, h, false);
+          if (d.y - d.len > h + 24) wfDrops[i] = wfMakeDrop(w, h, false);
           const g = wfCtx.createLinearGradient(d.x, d.y - d.len, d.x, d.y);
           g.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
-          g.addColorStop(0.5, `rgba(${rgb.r},${rgb.g},${rgb.b},${d.alpha})`);
-          g.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},${d.alpha * 0.15})`);
+          g.addColorStop(0.45, `rgba(${rgb.r},${rgb.g},${rgb.b},${d.alpha})`);
+          g.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},${d.alpha * 0.12})`);
           wfCtx.strokeStyle = g;
           wfCtx.lineWidth = d.width;
           wfCtx.beginPath();
           wfCtx.moveTo(d.x, d.y - d.len);
-          wfCtx.lineTo(d.x + d.drift * 6, d.y);
+          wfCtx.lineTo(d.x + d.drift * 4, d.y);
           wfCtx.stroke();
         });
+
+        // mist
+        wfMist.forEach((m, i) => {
+          if (!reduce) { m.x += m.vx + Math.sin((m.life + i*13) * 0.01) * 0.08; m.y += m.vy; m.life += 1; }
+          const fade = Math.max(0, 1 - (m.life / m.maxLife));
+          if (m.life > m.maxLife || m.y < h * 0.45) wfMist[i] = wfMakeMist(w, h, false);
+          const mg = wfCtx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.r);
+          mg.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.alpha * fade})`);
+          mg.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+          wfCtx.fillStyle = mg;
+          wfCtx.beginPath(); wfCtx.arc(m.x, m.y, m.r, 0, Math.PI * 2); wfCtx.fill();
+        });
+
         if (!reduce) wfAnim = requestAnimationFrame(wfStep);
       }
       function hexToRgb(hex) {
