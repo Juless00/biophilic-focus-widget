@@ -29,6 +29,7 @@
       box-shadow: var(--shadow); border: 1px solid var(--card-border); isolation: isolate;
     }
     .noise { position:absolute; inset:0; opacity:.035; background-image: radial-gradient(circle at 1px 1px, var(--text) .7px, transparent 0); background-size:8px 8px; pointer-events:none; }
+    .waterfall { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; opacity:.55; mix-blend-mode: normal; }
     .blob { position:absolute; border-radius:50%; filter:blur(2px); pointer-events:none; z-index:0; }
     .blob-a { width:260px;height:260px; top:-120px; right:-60px; background: radial-gradient(circle, rgba(139,161,127,.28), transparent 68%); }
     .blob-b { width:220px;height:220px; bottom:-120px; left:-40px; background: radial-gradient(circle, rgba(138,106,79,.12), transparent 68%); }
@@ -93,6 +94,7 @@
 <body>
   <main class="widget" aria-label="Biophilic focus widget">
     <div class="blob blob-a"></div><div class="blob blob-b"></div><div class="noise"></div>
+    <canvas class="waterfall" id="waterfall" aria-hidden="true"></canvas>
     <svg class="leaf-art" viewBox="0 0 320 360" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g opacity="0.95">
       <path d="M250 330C245 270 225 225 190 185C150 140 95 115 35 95C80 88 130 95 172 118C222 145 258 188 276 244C289 284 292 322 286 350" stroke="var(--leaf-deep)" stroke-width="5" stroke-linecap="round"/>
       <path d="M210 232C180 210 145 196 108 192C138 178 174 176 206 188C230 197 250 212 266 232" stroke="var(--leaf)" stroke-width="4" stroke-linecap="round"/>
@@ -427,10 +429,91 @@
         tzEl.textContent = tzError ? 'Local time (invalid tz)' : (tz ? tz.replace(/_/g,' ') : Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local time');
       }
 
+      // Waterfall
+      const wfCanvas = $('waterfall');
+      const wfCtx = wfCanvas ? wfCanvas.getContext('2d') : null;
+      let wfDrops = [];
+      let wfAnim = null;
+      function wfResize() {
+        if (!wfCanvas) return;
+        const r = wfCanvas.parentElement.getBoundingClientRect();
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        wfCanvas.width = Math.max(1, Math.floor(r.width * dpr));
+        wfCanvas.height = Math.max(1, Math.floor(r.height * dpr));
+        wfCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      function wfMakeDrop(w, h, randomY) {
+        return {
+          x: Math.random() * w,
+          y: randomY ? Math.random() * h : -20 - Math.random() * h * 0.3,
+          len: 18 + Math.random() * 38,
+          speed: 0.8 + Math.random() * 1.8,
+          drift: (Math.random() - 0.5) * 0.25,
+          alpha: 0.08 + Math.random() * 0.18,
+          width: 0.7 + Math.random() * 1.3
+        };
+      }
+      function wfInit() {
+        if (!wfCanvas || !wfCtx) return;
+        wfResize();
+        const w = wfCanvas.parentElement.clientWidth;
+        const h = wfCanvas.parentElement.clientHeight;
+        const count = Math.max(28, Math.floor(w / 14));
+        wfDrops = Array.from({ length: count }, () => wfMakeDrop(w, h, true));
+      }
+      function wfStep() {
+        if (!wfCanvas || !wfCtx) return;
+        const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const w = wfCanvas.parentElement.clientWidth;
+        const h = wfCanvas.parentElement.clientHeight;
+        wfCtx.clearRect(0, 0, w, h);
+        const cs = getComputedStyle(document.documentElement);
+        const color = (cs.getPropertyValue('--accent') || '#7f9b76').trim();
+        const rgb = color.startsWith('#') ? hexToRgb(color) : parseRgb(color) || {r:127,g:155,b:118};
+        wfCtx.lineCap = 'round';
+        wfDrops.forEach((d, i) => {
+          if (!reduce) {
+            d.y += d.speed;
+            d.x += d.drift + Math.sin((d.y + i * 17) * 0.01) * 0.15;
+          }
+          if (d.y - d.len > h + 20) wfDrops[i] = wfMakeDrop(w, h, false);
+          const g = wfCtx.createLinearGradient(d.x, d.y - d.len, d.x, d.y);
+          g.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+          g.addColorStop(0.5, `rgba(${rgb.r},${rgb.g},${rgb.b},${d.alpha})`);
+          g.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},${d.alpha * 0.15})`);
+          wfCtx.strokeStyle = g;
+          wfCtx.lineWidth = d.width;
+          wfCtx.beginPath();
+          wfCtx.moveTo(d.x, d.y - d.len);
+          wfCtx.lineTo(d.x + d.drift * 6, d.y);
+          wfCtx.stroke();
+        });
+        if (!reduce) wfAnim = requestAnimationFrame(wfStep);
+      }
+      function hexToRgb(hex) {
+        const h = hex.replace('#','');
+        const full = h.length === 3 ? h.split('').map(c=>c+c).join('') : h;
+        const n = parseInt(full, 16);
+        return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+      }
+      function parseRgb(s) {
+        const m = s.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        return m ? {r:+m[1],g:+m[2],b:+m[3]} : null;
+      }
+      function wfStart() {
+        if (wfAnim) cancelAnimationFrame(wfAnim);
+        wfInit();
+        const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduce) { wfStep(); } else { wfAnim = requestAnimationFrame(wfStep); }
+      }
+      window.addEventListener('resize', () => { wfResize(); wfInit(); });
+      if (window.matchMedia) window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', wfStart);
+
       // Init
       updateClock();
       renderHabits();
       renderPomodoro();
+      wfStart();
       setInterval(() => { updateClock(); renderPomodoro(); }, 1000);
     })();
   </script>
